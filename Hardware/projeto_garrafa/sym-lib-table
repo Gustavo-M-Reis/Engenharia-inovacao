@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "COMP_proj_garrafa")(type "KiCad")(uri "${KIPRJMOD}/COMP_proj_garrafa.kicad_sym")(options "")(descr ""))
+)
