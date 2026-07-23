@@ -1,15 +1,18 @@
-#define CHARGE_PIN 2
-#define SENSOR_PIN A4
+#include <MPU6050.h>
+#include <Wire.h>
 
 
-void set_highspeed_adc();
+#define CHARGE_PIN 10
+#define SENSOR_PIN A0
+#define BUZZER_PIN 6
 
-unsigned long read_time(uint8_t sensor_pin, uint8_t charge_pin, uint8_t low, uint16_t high);
-float capacitance_from_time();
 
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin);
 
 float adjust(float input, float input_min, float input_max, float output_min, float output_max);
+void demo();
+void buzzer_logic(byte state);
+
 
 //346 leitura cheia
 //instavel quando completamente vazio
@@ -17,6 +20,8 @@ float adjust(float input, float input_min, float input_max, float output_min, fl
 
 //calib 1105 - 630
 //104 - 58
+
+MPU6050 IMU;
 
 
 void setup(){
@@ -26,6 +31,17 @@ void setup(){
     pinMode(CHARGE_PIN, OUTPUT);
     digitalWrite(CHARGE_PIN, LOW);
 
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
+
+    if(IMU.begin()){
+        Serial.println("erro ao iniciar a MPU");
+        while(1);
+    }
+
+
+    demo();
+    
 }
 
 
@@ -66,51 +82,9 @@ float adjust(float input, float input_min, float input_max, float output_min, fl
     return((output_max - output_min) / (input_max - input_min))  * (input - input_min) + output_min;
 }
 
-void set_highspeed_adc(){
-    ADCSRA &= ~(bit(ADPS0) | bit(ADPS1) | bit(ADPS2));
-    ADCSRA |= bit(ADPS2);
-}
 
 
-unsigned long read_time(uint8_t sensor_pin, uint8_t charge_pin, uint8_t low, uint16_t high){
-    
-    digitalWrite(charge_pin, HIGH);
-    unsigned long tempo = micros();
 
-    while(analogRead(sensor_pin) < high);
-
-    tempo = micros() - tempo;
-
-    digitalWrite(charge_pin, LOW);
-    while(analogRead(sensor_pin) > low);
-
-    return tempo;
-}
-
-
-float capacitance_from_time(){
-     unsigned long media_soma = 0;
-
-    for(uint8_t i = 0 ; i < 10 ; i++){
-        media_soma += read_time(SENSOR_PIN, CHARGE_PIN, 5, 885);
-    }
-
-    float media = (float)media_soma * 0.1;
-
-    media -= 645.0;
-
-    Serial.print("tempo: ");
-    Serial.print(media);
-    Serial.print("us");
-
-    media = ((media * 0.000001) * 100000.0) * 0.5; 
-
-    Serial.print(" - Capacitancia: ");
-    Serial.print(media);
-    Serial.println("pF");
-
-    return media;
-}
 
 
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin){
@@ -129,4 +103,40 @@ uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin){
     digitalWrite(charge_pin, LOW);
 
     return result;
+}
+
+void buzzer_logic(byte state){
+    static unsigned long timer = millis();
+    static byte current_state = 0;
+
+    if(state){
+        if(millis() - timer >= 100){
+            timer = millis();
+            current_state = ~current_state;
+            digitalWrite(BUZZER_PIN, current_state);
+        }
+    }
+    else digitalWrite(BUZZER_PIN, LOW);
+}
+
+
+void demo(){
+
+    unsigned long timer = 0;
+    int z_accel = 0;
+    while(1){
+        
+        if(millis() - timer > 5){
+            IMU.get_sensor(ACCEL_Z, z_accel);
+            timer = millis();
+        }
+        
+
+        if(z_accel < 0){
+            buzzer_logic(true);
+        }
+        else buzzer_logic(false);
+    }
+  
+
 }

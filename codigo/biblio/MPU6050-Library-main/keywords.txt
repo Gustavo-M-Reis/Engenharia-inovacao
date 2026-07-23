@@ -1,0 +1,13 @@
+MPU6050 KEYWORD1    MPU6050
+
+Deviation KEYWORD2
+begin   KEYWORD2
+lowPassFilter   KEYWORD2
+gyroscope_range KEYWORD2
+accelerometer_range KEYWORD2
+get_sensor  KEYWORD2
+convert_gyro    KEYWORD2
+convert_accel   KEYWORD2
+convert_temp   KEYWORD2
+test_sensor KEYWORD2
+get_offset  KEYWORD2
