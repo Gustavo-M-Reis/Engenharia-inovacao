@@ -19,8 +19,10 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-#define TEMPO_DEBOUNCE 100-1
-#define TEMPO_ESPERA 5000-1
+#define TEMPO_DEBOUNCE 100
+#define TEMPO_ESPERA 5000
+#define TEMPO_LED 500
+#define TEMPO_TIMEOUT 60000 // Define o tempo de aviso como 60 segundos - apenas para teste
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 MPU6050 IMU;
@@ -41,32 +43,32 @@ class Timer{
     }
 };
 
+// Declaração timers
+
+Timer Timer_LED;
+Timer Timer_IMU;
+
+// Estrutura para os botões
+
 struct Botao {
   uint8_t botao;
   bool estadoAnterior;
   unsigned long ultimoTempo;
 };
 
+// Estados das funções de controle
+
 enum STATE {HELLO, IDADE, PESO, SAVE, PRINCIPAL, AVISO};
 
 // Declaração das variáveis globais
 
-struct Botao BOT_UP = {BOT_CIMA, 0, 0};     // Botão +
-struct Botao BOT_DW = {BOT_BAIXO, 0, 0};    // Botão -
-struct Botao BOT_OK = {BOT_CONFIRMA, 0, 0}; // Botão Confirma
-bool B_UP = 0;
-bool B_DW = 0;
-bool B_OK = 0;
 bool estavel = 1;                  // Está estável? 0 = não / 1 = sim
 uint16_t idade = 60;               // Idade inicializa com 60 anos - produto focado em idosos 
 uint16_t peso = 70;                // Peso inicializa com 70 Kg
 uint16_t consumo_est = 0;          // Consumo estimado - calculo com base em peso e idade
 uint16_t consumo_atual = 0;        // Consumo atual - zera quando a garrafa é inicializada
 uint16_t bateria = 0;              // Valor em porcentagem da bateria = bat_atual/bat_max
-unsigned long tempo_ref;           // Tempo desde de a inicialização 
-unsigned long tempo_deb = 50;      // Tempo para debouncing 
 enum STATE modo_display = HELLO;       
-enum STATE modo_sys = HELLO;
 
 // Declaração das Funções
 
@@ -77,13 +79,15 @@ void buzzer_logic(byte state);
 void move_detect();
 
 // Funções - Lucas
-bool ler_botoes(Botao *btn);     // Lê os botões e implementa debouncing
-bool esta_estavel();             // Verifica se está estável para leitura
-uint16_t quanto_bebeu();         // Lê a variação de água e incrementa o consumo
-uint16_t carga_bateria();        // Devolve a porcentagem da bateria
-void controle_sys();             // Implementa máquina de estados do sistema
-void controle_display();         // Implementa máquina de estados do display
-uint16_t consumo_estimado();     // Calcula o consumo estimado baseado na idade e peso
+bool ler_botoes(Botao *btn);                             // Lê os botões e implementa debouncing
+bool esta_estavel();                                     // Verifica se está estável para leitura
+uint16_t quanto_bebeu();                                 // Lê a variação de água e incrementa o consumo
+uint16_t carga_bateria();                                // Devolve a porcentagem da bateria
+void controle_sys(bool B_UP, bool B_DW, bool B_OK);      // Implementa máquina de estados do sistema
+void controle_display();                                 // Implementa máquina de estados do display
+uint16_t consumo_estimado();                             // Calcula o consumo estimado baseado na idade e peso
+void aviso_LED_buzzer();                                 // Controla LEDs e Buzzer
+bool botao_pressionado();                                // Verifica se o botão foi pressionado por 5 segundos
 
 void setup() {
   // Setup do arquivo de teste - talvez precise de ajustes
@@ -105,21 +109,22 @@ void setup() {
         Serial.println("erro ao iniciar a MPU");
         while(1);
     }
+    // Essas duas linhas tem que ver se vai precisar mesmo
     move_detect();
-    Timer Timer_LED;
-    Timer Timer_IMU;
     int z_accel = 1;
-
-    tempo_ref = millis();      // Inicializa o tempo de referência no final do SETUP
 }
 
 void loop() { 
   // Chama as funções necessárias no LOOP - pode precisar de alterações
-  B_UP = ler_botoes(&BOT_UP);
-  B_DW = ler_botoes(&BOT_DW);
-  B_OK = ler_botoes(&BOT_OK);
+  static struct Botao BOT_UP = {BOT_CIMA, 0, 0};     
+  static struct Botao BOT_DW = {BOT_BAIXO, 0, 0};    
+  static struct Botao BOT_OK = {BOT_CONFIRMA, 0, 0};
+
+  bool B_UP = ler_botoes(&BOT_UP);
+  bool B_DW = ler_botoes(&BOT_DW);
+  bool B_OK = ler_botoes(&BOT_OK);
   
-  controle_sys();
+  controle_sys(B_UP, B_DW, B_OK);
   controle_display();
 }
 
@@ -140,13 +145,40 @@ bool ler_botoes(Botao *btn){
   return clicou;
 }
 
+bool botao_pressionado(){
+  static unsigned long tempo_pressionado = 0;
+  if (!digitalRead(BOT_CONFIRMA)) { 
+    if (tempo_pressionado == 0) {
+      tempo_pressionado = millis(); 
+      return 0;
+    } 
+    else if (millis() - tempo_pressionado >= 5000) {
+      tempo_pressionado = 0;    
+      return 1;
+    }
+  }
+  else {
+    tempo_pressionado = 0; 
+    return 0;
+  }  
+}
+
 bool esta_estavel(){
   // Precisa ver como verificar se está estável
+  // Deve devolver 1 se está pronto para medida / 0 caso contrátio
   return 1;
 }
 
-uint16_t quanto_bebeu(){
+uint16_t quanto_bebeu(){  
   // Precisa ver como vai fazer para obter as medidas de nível
+  // Tem que devolver uma medida estável depois de um tempo da medição, não uma flutuação
+  // ex: retornar 0 a menos que a variação lida seja maior que 10ml
+  // Chamar função esta_estavel()
+  // Levar em consideração essa parte do código!
+  //    consumo += quanto_bebeu();
+  //    if (consumo >= 50){
+  //      consumo_atual += consumo;
+  //      consumo = 0;
   return 0;
 }
 
@@ -172,9 +204,27 @@ uint16_t consumo_estimado(){
   return peso * fator_ml;
 }
 
+void aviso_LED_buzzer(){
+  if(Timer_LED.get() < TEMPO_LED){
+    digitalWrite(LED, HIGH);
+    buzzer_logic(true);
+  }
+  else if(Timer_LED.get() >= TEMPO_LED && Timer_LED.get() < 2*TEMPO_LED){
+    digitalWrite(LED, LOW);
+    buzzer_logic(false);
+  }
+  else{
+    Timer_LED.reset();
+  }
+}
+
 // Máquina de Estados Finita do Sistema
 
-void controle_sys(){
+void controle_sys(bool B_UP, bool B_DW, bool B_OK){
+  static enum STATE modo_sys = HELLO;
+  static uint16_t consumo = 0;
+  static unsigned long tempo_ref = millis();
+  static unsigned long tempo_TIMEOUT = millis();
   switch(modo_sys){
     case HELLO:
       modo_display = HELLO;
@@ -207,21 +257,37 @@ void controle_sys(){
       modo_display = SAVE;
       if (millis()-tempo_ref >= TEMPO_ESPERA){
         consumo_est = consumo_estimado();
+        tempo_TIMEOUT = millis();
         modo_sys = PRINCIPAL;
       }
       break;
     case PRINCIPAL:
       modo_display = PRINCIPAL;
-      consumo_atual += quanto_bebeu();
+      consumo += quanto_bebeu();
+      if (consumo >= 50){
+        consumo_atual += consumo;
+        consumo = 0;
+        tempo_TIMEOUT = millis();
+      }
       bateria = carga_bateria();
-      // Falta lógica do pressionar botão por 5 segundos
-      // Falta a lógica do TIMEOUT do aviso 
+      if (botao_pressionado() == 1){
+        modo_sys = IDADE;
+      }
+      if (millis()-tempo_TIMEOUT >= TEMPO_TIMEOUT){
+        Timer_LED.reset();
+        modo_sys = AVISO;
+      }
       break;
     case AVISO:
       modo_display = AVISO;
-      // Falta ligar LEDs e BUZZER 
-      if (B_OK == 1 or quanto_bebeu() >= 100){
-        consumo_atual += quanto_bebeu();
+      aviso_LED_buzzer(); 
+      consumo += quanto_bebeu();
+      if (B_OK == 1 or consumo >= 50){
+        digitalWrite(LED, LOW);
+        buzzer_logic(false);
+        consumo_atual += consumo;
+        consumo = 0;
+        tempo_TIMEOUT = millis();
         modo_sys = PRINCIPAL;
       }
       break;
@@ -273,16 +339,16 @@ uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin){
 }
 
 void buzzer_logic(byte state){
-    static unsigned long timer = millis();
-    static byte current_state = 0;
-    if(state){
-        if(millis() - timer >= 100){
-            timer = millis();
-            current_state = ~current_state;
-            digitalWrite(BUZZER_PIN, current_state);
-        }
+  static unsigned long timer = millis();
+  static byte current_state = 0;
+  if(state){
+    if(millis() - timer >= 100){
+      timer = millis();
+      current_state = ~current_state;
+      digitalWrite(BUZZER_PIN, current_state);
     }
-    else digitalWrite(BUZZER_PIN, LOW);
+  }
+  else digitalWrite(BUZZER_PIN, LOW);
 }
 
 void move_detect(){
