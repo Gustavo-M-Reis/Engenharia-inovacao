@@ -1,3 +1,9 @@
+//------------------------------------------------------------------// 
+//                                                                  //
+//    Soluções Para Desafios em Engenharia - Garrafa Inteligente    //
+//                                                                  //
+//------------------------------------------------------------------//
+
 #include "MPU6050.h"
 #include <Wire.h>
 #include "Adafruit_SSD1306.h"
@@ -35,8 +41,6 @@ class Timer{
     }
 };
 
-// Declaração das variáveis globais 
-
 struct Botao {
   uint8_t botao;
   bool estadoAnterior;
@@ -45,19 +49,20 @@ struct Botao {
 
 enum STATE {HELLO, IDADE, PESO, SAVE, PRINCIPAL, AVISO};
 
+// Declaração das variáveis globais
+
 struct Botao BOT_UP = {BOT_CIMA, 0, 0};     // Botão +
 struct Botao BOT_DW = {BOT_BAIXO, 0, 0};    // Botão -
 struct Botao BOT_OK = {BOT_CONFIRMA, 0, 0}; // Botão Confirma
-
 bool B_UP = 0;
 bool B_DW = 0;
 bool B_OK = 0;
 bool estavel = 1;                  // Está estável? 0 = não / 1 = sim
-uint16_t idade = 60;                // Idade inicializa com 60 anos - produto focado em idosos 
-uint16_t peso = 70;                 // Peso inicializa com 70 Kg
+uint16_t idade = 60;               // Idade inicializa com 60 anos - produto focado em idosos 
+uint16_t peso = 70;                // Peso inicializa com 70 Kg
 uint16_t consumo_est = 0;          // Consumo estimado - calculo com base em peso e idade
 uint16_t consumo_atual = 0;        // Consumo atual - zera quando a garrafa é inicializada
-uint16_t bateria = 0;               // Valor em porcentagem da bateria = bat_atual/bat_max
+uint16_t bateria = 0;              // Valor em porcentagem da bateria = bat_atual/bat_max
 unsigned long tempo_ref;           // Tempo desde de a inicialização 
 unsigned long tempo_deb = 50;      // Tempo para debouncing 
 enum STATE modo_display = HELLO;       
@@ -65,23 +70,23 @@ enum STATE modo_sys = HELLO;
 
 // Declaração das Funções
 
+// Funções - Igor
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin);
 float adjust(float input, float input_min, float input_max, float output_min, float output_max);
 void buzzer_logic(byte state);
 void move_detect();
 
+// Funções - Lucas
 bool ler_botoes(Botao *btn);     // Lê os botões e implementa debouncing
 bool esta_estavel();             // Verifica se está estável para leitura
 uint16_t quanto_bebeu();         // Lê a variação de água e incrementa o consumo
-uint16_t carga_bateria();         // Devolve a porcentagem da bateria
+uint16_t carga_bateria();        // Devolve a porcentagem da bateria
 void controle_sys();             // Implementa máquina de estados do sistema
 void controle_display();         // Implementa máquina de estados do display
 uint16_t consumo_estimado();     // Calcula o consumo estimado baseado na idade e peso
 
 void setup() {
-  
   // Setup do arquivo de teste - talvez precise de ajustes
-
     Serial.begin(115200);
     pinMode(CHARGE_PIN, OUTPUT);
     digitalWrite(CHARGE_PIN, LOW);
@@ -108,20 +113,19 @@ void setup() {
     tempo_ref = millis();      // Inicializa o tempo de referência no final do SETUP
 }
 
-void loop() {
-  
+void loop() { 
   // Chama as funções necessárias no LOOP - pode precisar de alterações
-
   B_UP = ler_botoes(&BOT_UP);
   B_DW = ler_botoes(&BOT_DW);
   B_OK = ler_botoes(&BOT_OK);
   
   controle_sys();
   controle_display();
-
 }
 
 // A partir daqui são definidas as funções chamadas no setup() e loop()
+
+// Funções de controle/sensoriamento escritas pelo Lucas
 
 bool ler_botoes(Botao *btn){
   bool leitura = !digitalRead(btn->botao); 
@@ -150,6 +154,25 @@ uint16_t carga_bateria(){
   // Precisa ver como vai fazer para obter a carga máxima
   return 50;
 }
+
+uint16_t consumo_estimado(){
+  uint16_t fator_ml = 0;
+  if (idade <= 17) {
+    fator_ml = 40;
+  } 
+  else if (idade <= 55) {
+    fator_ml = 35;
+  } 
+  else if (idade <= 65) {
+    fator_ml = 30;
+  } 
+  else {
+    fator_ml = 25;
+  }
+  return peso * fator_ml;
+}
+
+// Máquina de Estados Finita do Sistema
 
 void controle_sys(){
   switch(modo_sys){
@@ -205,22 +228,7 @@ void controle_sys(){
   }    
 }
 
-uint16_t consumo_estimado(){
-  uint16_t fator_ml = 0;
-  if (idade <= 17) {
-    fator_ml = 40;
-  } 
-  else if (idade <= 55) {
-    fator_ml = 35;
-  } 
-  else if (idade <= 65) {
-    fator_ml = 30;
-  } 
-  else {
-    fator_ml = 25;
-  }
-  return peso * fator_ml;
-}
+// Máquina de Estados Finita do Display
 
 void controle_display(){
   switch(modo_display){
