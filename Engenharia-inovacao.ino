@@ -89,6 +89,7 @@ uint16_t consumo_estimado();                             // Calcula o consumo es
 void aviso_LED_buzzer();                                 // Controla LEDs e Buzzer
 bool botao_pressionado();                                // Verifica se o botão foi pressionado por 5 segundos
 
+
 void setup() {
   // Setup do arquivo de teste - talvez precise de ajustes
     Serial.begin(115200);
@@ -299,13 +300,13 @@ void controle_sys(bool B_UP, bool B_DW, bool B_OK){
 void controle_display(){
   switch(modo_display){
     case HELLO:
-      // "HELLO!"
+      exibirTela_hello();
       break;
     case IDADE:
-     
+      exibirTelaIdade();
       break;
     case PESO:
-      
+      exibirTelaPeso();
       break;
     case SAVE:
       // "Dados salvos com sucesso"
@@ -319,6 +320,50 @@ void controle_display(){
       break;
   }    
 }
+
+/* -FUNÇÕES QUE VÃO EXIBIR A TELA NO DISPLAY OLED
+*/
+
+//Gustavo
+bool configuraDisplay(uint8_t textSize, uint16_t color = WHITE, int16_t xcoor = 0, int16_t ycoor = 0){
+  //Essa função determina o tamanho do texto, cor e posição inicial
+  if((ycoor < 0 || ycoor > SCREEN_HEIGHT) || (xcoor < 0 || xcoor > SCREEN_WIDTH))
+    return false;
+  display.setTextSize(textSize);
+  display.setTextColor(color);
+  display.setCursor(xcoor, ycoor);
+  return true;
+}
+
+//Gustavo
+void exibirTela_hello(){
+  display.clearDisplay();
+  configuraDisplay(10); //60x80
+  display.print("Seja bem-vindo(a)");
+}
+
+//Gustavo
+void exibirTelaIdade(){
+  display.clearDisplay();
+  configuraDisplay(3);
+  display.print("Insira a sua Idade:");
+  //converter de inteiro para string
+  char buffer[6];
+  snprintf(buffer, sizeof(buffer), "%d", idade);
+  display.print(buffer);
+}
+
+//Gustavo
+void exibirTelaPeso(){
+  display.clearDisplay();
+  configuraDisplay(3);
+  display.print("Insira o seu peso:");
+  //converter de inteiro para string
+  char buffer[6];
+  snprintf(buffer, sizeof(buffer), "%d", peso);
+  display.print(buffer);
+}
+
 
 // Essas são funções de sensoriamento escritas pelo Igor
 
