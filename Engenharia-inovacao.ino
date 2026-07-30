@@ -309,14 +309,13 @@ void controle_display(){
       exibirTelaPeso();
       break;
     case SAVE:
-      // "Dados salvos com sucesso"
+      exibirTelaSave();
       break;
     case PRINCIPAL:
-      // mostra consumo_atual / consumo_est
-      // mostra bateria
+      exibirTelaPrincipal()
       break;
     case AVISO:
-      // "Beba água ou aperte OK"
+      exibirTelaAviso();
       break;
   }    
 }
@@ -362,6 +361,39 @@ void exibirTelaPeso(){
   char buffer[6];
   snprintf(buffer, sizeof(buffer), "%d", peso);
   display.print(buffer);
+}
+
+void exibirTelaSave(){
+    display.clearDisplay();
+    configuraDisplay(1);
+    display.print("Dados salvos com sucesso!");
+
+    display.display();
+}
+
+void exibirTelaPrincipal(){
+    display.clearDisplay();
+    configuraDisplay(1);
+    display.print("Bateria: ");
+    display.print(carga_bateria);
+    display.print("%");
+
+    display.setCursor(0,16);
+    display.print(consumo_atual);
+    display.print(" ml");
+    display.print(" / ");
+    display.print(consumo_estimado);
+    display.print(" ml");
+
+    display.display();
+}
+
+void exibirTelaAviso(){
+    display.clearDisplay();
+    configuraDisplay(1);
+    display.print("Beba água ou pressione OK para adiar.");
+
+    display.display();
 }
 
 
