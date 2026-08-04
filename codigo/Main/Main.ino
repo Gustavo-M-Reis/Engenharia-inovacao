@@ -77,6 +77,7 @@ uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin);
 float adjust(float input, float input_min, float input_max, float output_min, float output_max);
 void buzzer_logic(byte state);
 void move_detect();
+uint16_t get_liq_level();
 
 // Funções - Lucas
 bool ler_botoes(Botao *btn);                             // Lê os botões e implementa debouncing
@@ -115,7 +116,7 @@ void setup() {
     //int z_accel = 1;
 
     while(1){
-      move_detect();
+      uint16_t value = get_liq_level();
     }
 }
 
@@ -414,11 +415,15 @@ float adjust(float input, float input_min, float input_max, float output_min, fl
 
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin){
     pinMode(sensor_pin, OUTPUT);
+    
     digitalWrite(sensor_pin, LOW);
     digitalWrite(charge_pin, LOW);
-    delay(5);
+    delay(1);
+
     pinMode(sensor_pin, INPUT);
+    
     digitalWrite(charge_pin, HIGH);
+
     uint16_t result = analogRead(sensor_pin);
     digitalWrite(charge_pin, LOW);
     return result;
@@ -492,4 +497,39 @@ void move_detect(){
   else allarm_filter += (-allarm_filter) * filtro_desativacao;
 
     
+}
+
+//faz a leitura do nivel de fluido na garrafa
+uint16_t get_liq_level(){
+
+  /*
+os valores devem sar calibrados de acordo com a quantidade
+calibração com os pontos abaixo:
+0 - 280
+42 - 370
+111 - 460
+195 - 530
+283 - 590
+361 - 630
+464 - 675
+540 - 700
+valores aferidos com uma balança
+
+*/
+uint32_t raw = 0;
+for(uint8_t i = 0 ; i < 20 ; i++){
+  raw += read_charge(SENSOR_PIN, CHARGE_PIN);
+}
+
+float raw_value = (float)raw / 20.0;
+int16_t out = (int16_t)(-198 + 1.29*raw_value -0.00325 * pow(raw_value, 2) + 0.00000415 * pow(raw_value, 3));
+out = min(max(out, 0), 550);
+
+
+Serial.print("raw value: ");
+Serial.print(raw_value);
+Serial.print(" - level: ");
+Serial.println(out);
+
+return((uint16_t)out);
 }
