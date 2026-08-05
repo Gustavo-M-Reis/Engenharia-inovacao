@@ -17,12 +17,19 @@
 #define BOT_CONFIRMA 3
 #define LED 5
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 #define TEMPO_DEBOUNCE 100
 #define TEMPO_ESPERA 5000
 #define TEMPO_LED 500
 #define TEMPO_TIMEOUT 60000 // Define o tempo de aviso como 60 segundos - apenas para teste
+
+#define MIN_VALUE 130
+#define MAX_VALUE 673
+
+
+float _min_cap = 0.0;
+float _max_cap = 0.0;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 MPU6050 IMU;
@@ -76,8 +83,9 @@ enum STATE modo_display = HELLO;
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin);
 float adjust(float input, float input_min, float input_max, float output_min, float output_max);
 void buzzer_logic(byte state);
-void move_detect();
+bool is_stable();
 uint16_t get_liq_level();
+float value2cap(uint16_t value);
 
 // Funções - Lucas
 bool ler_botoes(Botao *btn);                             // Lê os botões e implementa debouncing
@@ -90,6 +98,7 @@ uint16_t consumo_estimado();                             // Calcula o consumo es
 void aviso_LED_buzzer();                                 // Controla LEDs e Buzzer
 bool botao_pressionado();                                // Verifica se o botão foi pressionado por 5 segundos
 
+bool configuraDisplay(uint8_t textSize, uint16_t color = WHITE, int16_t xcoor = 0, int16_t ycoor = 0);
 
 void setup() {
   // Setup do arquivo de teste - talvez precise de ajustes
@@ -114,9 +123,26 @@ void setup() {
     // Essas duas linhas tem que ver se vai precisar mesmo
     //move_detect();
     //int z_accel = 1;
+    configuraDisplay(1);
+
+    _min_cap = value2cap(MIN_VALUE);
+    _max_cap = value2cap(MAX_VALUE);
 
     while(1){
+      display.clearDisplay();
+      display.setTextSize(2);
+      display.setCursor(0, 2);
+
       uint16_t value = get_liq_level();
+
+      display.print("nivel: ");
+      display.println(value);
+
+      if(is_stable()){
+        display.print("Stable");
+      }
+
+      display.display();
     }
 }
 
@@ -331,7 +357,7 @@ void controle_display(){
 */
 
 //Gustavo
-bool configuraDisplay(uint8_t textSize, uint16_t color = WHITE, int16_t xcoor = 0, int16_t ycoor = 0){
+bool configuraDisplay(uint8_t textSize, uint16_t color, int16_t xcoor, int16_t ycoor){
   //Essa função determina o tamanho do texto, cor e posição inicial
   if((ycoor < 0 || ycoor > SCREEN_HEIGHT) || (xcoor < 0 || xcoor > SCREEN_WIDTH))
     return false;
@@ -442,7 +468,7 @@ void buzzer_logic(byte state){
   else digitalWrite(BUZZER_PIN, LOW);
 }
 
-void move_detect(){
+bool is_stable(){
   static float x_accel_filtered = 0.0, y_accel_filtered = 0.0, z_accel_filtered = 0.0;
   static float allarm_filter = 0.0;
   
@@ -450,9 +476,9 @@ void move_detect(){
   float theta = 0.0;
 
 
-  float limiar = 300.0;
+  float limiar = 700.0;
   float filtro_ativacao = 0.3;
-  float filtro_desativacao = 0.1;
+  float filtro_desativacao = 0.01;
 
 
   
@@ -462,13 +488,7 @@ void move_detect(){
   IMU.get_sensor(ACCEL_Y, y_accel);
   IMU.get_sensor(ACCEL_Z, z_accel);
 
-  alpha = RAD_TO_DEG * atan2((float)x_accel, (float)z_accel);
-  theta = RAD_TO_DEG * atan2((float)y_accel, (float)z_accel);
-
-  Serial.print("angulos-> alpha: ");
-  Serial.print(alpha);
-  Serial.print(" - theta: ");
-  Serial.println(theta);
+ 
 
 
   float x = 0.0, y = 0.0, z = 0.0;
@@ -479,6 +499,9 @@ void move_detect(){
   x_accel_filtered += (x - x_accel_filtered) * filtro_ativacao;
   y_accel_filtered += (y - y_accel_filtered) * filtro_ativacao;
   z_accel_filtered += (z - z_accel_filtered) * filtro_ativacao;
+
+  alpha = RAD_TO_DEG * atan2(x_accel_filtered, z_accel_filtered);
+  theta = RAD_TO_DEG * atan2(y_accel_filtered, z_accel_filtered);
 
 
   if(x > (x_accel_filtered + limiar)){
@@ -496,6 +519,10 @@ void move_detect(){
   }
   else allarm_filter += (-allarm_filter) * filtro_desativacao;
 
+
+  if(allarm_filter < 500 && alpha < 5.0 && theta < 5.0) return true;
+
+  return false;
     
 }
 
@@ -513,23 +540,46 @@ calibração com os pontos abaixo:
 361 - 630
 464 - 675
 540 - 700
+
+0	123
+24	205
+50	268
+88	337
+138	407
+263	528
+360	590
+464	642
+545	673
 valores aferidos com uma balança
 
 */
-uint32_t raw = 0;
+uint32_t media = 0;
 for(uint8_t i = 0 ; i < 20 ; i++){
-  raw += read_charge(SENSOR_PIN, CHARGE_PIN);
+  media += read_charge(SENSOR_PIN, CHARGE_PIN);
 }
 
-float raw_value = (float)raw / 20.0;
-int16_t out = (int16_t)(-198 + 1.29*raw_value -0.00325 * pow(raw_value, 2) + 0.00000415 * pow(raw_value, 3));
-out = min(max(out, 0), 550);
+float capacitancia = value2cap((float)media / 20.0);
+
+int16_t nivel = (int16_t)adjust(capacitancia, _min_cap, _max_cap, 0.0, 545.0);
+
+nivel = min(max(nivel, 0), 550);
+
+display.print("raw: ");
+display.println((uint16_t)media / 20);
+
+//Serial.print("raw value: ");
+//Serial.print(raw_value);
+//Serial.print(" - level: ");
+//Serial.println(out);
+
+return((uint16_t)nivel);
+}
 
 
-Serial.print("raw value: ");
-Serial.print(raw_value);
-Serial.print(" - level: ");
-Serial.println(out);
+float value2cap(uint16_t value){
 
-return((uint16_t)out);
+  float volts = 0.00488758553 * (float)value;
+  float capacitancia = (volts * 47.0) / (4.5 - volts);
+
+  return capacitancia;
 }
