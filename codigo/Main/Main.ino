@@ -17,7 +17,7 @@
 #define BOT_CONFIRMA 3
 #define LED 5
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 #define TEMPO_DEBOUNCE 100
 #define TEMPO_ESPERA 5000
@@ -53,7 +53,7 @@ class Timer{
 // Declaração timers
 
 Timer Timer_LED;
-Timer Timer_IMU;
+Timer Timer_stable;
 
 // Estrutura para os botões
 
@@ -120,6 +120,7 @@ void setup() {
         Serial.println("erro ao iniciar a MPU");
         while(1);
     }
+    IMU.lowPassFilter(BANDWIDTH_5HZ);
     // Essas duas linhas tem que ver se vai precisar mesmo
     //move_detect();
     //int z_accel = 1;
@@ -128,6 +129,7 @@ void setup() {
     _min_cap = value2cap(MIN_VALUE);
     _max_cap = value2cap(MAX_VALUE);
 
+    /*
     while(1){
       display.clearDisplay();
       display.setTextSize(2);
@@ -144,6 +146,7 @@ void setup() {
 
       display.display();
     }
+      */
 }
 
 void loop() { 
@@ -256,9 +259,10 @@ void aviso_LED_buzzer(){
 
 void controle_sys(bool B_UP, bool B_DW, bool B_OK){
   static enum STATE modo_sys = HELLO;
-  static uint16_t consumo = 0;
+  static int16_t consumo = 0;
   static unsigned long tempo_ref = millis();
   static unsigned long tempo_TIMEOUT = millis();
+  static uint16_t last_level = get_liq_level();
   switch(modo_sys){
     case HELLO:
       modo_display = HELLO;
@@ -297,11 +301,15 @@ void controle_sys(bool B_UP, bool B_DW, bool B_OK){
       break;
     case PRINCIPAL:
       modo_display = PRINCIPAL;
-      consumo += quanto_bebeu();
-      if (consumo >= 50){
-        consumo_atual += consumo;
-        consumo = 0;
-        tempo_TIMEOUT = millis();
+      if(is_stable()){
+        uint16_t level = get_liq_level();
+       consumo = (int16_t)last_level - (int16_t)level;
+
+        if (consumo >= 50){
+          consumo_atual += consumo;
+          last_level = level;
+          tempo_TIMEOUT = millis();
+        }
       }
       bateria = carga_bateria();
       if (botao_pressionado() == 1){
@@ -315,12 +323,18 @@ void controle_sys(bool B_UP, bool B_DW, bool B_OK){
     case AVISO:
       modo_display = AVISO;
       aviso_LED_buzzer(); 
-      consumo += quanto_bebeu();
+      if(is_stable()){
+        uint16_t level = get_liq_level();
+        consumo = (int16_t)last_level - (int16_t)level;
+
+        if (consumo >= 50){
+          consumo_atual += consumo;
+          last_level = level;
+        }
+      }
       if (B_OK == 1 or consumo >= 50){
         digitalWrite(LED, LOW);
         buzzer_logic(false);
-        consumo_atual += consumo;
-        consumo = 0;
         tempo_TIMEOUT = millis();
         modo_sys = PRINCIPAL;
       }
@@ -472,23 +486,18 @@ bool is_stable(){
   static float x_accel_filtered = 0.0, y_accel_filtered = 0.0, z_accel_filtered = 0.0;
   static float allarm_filter = 0.0;
   
+  
   float alpha = 0.0;
   float theta = 0.0;
 
 
   float limiar = 700.0;
   float filtro_ativacao = 0.3;
-  float filtro_desativacao = 0.01;
-
-
-  
-
+ 
   int x_accel = 0, y_accel = 0, z_accel = 0;      
   IMU.get_sensor(ACCEL_X, x_accel);
   IMU.get_sensor(ACCEL_Y, y_accel);
   IMU.get_sensor(ACCEL_Z, z_accel);
-
- 
 
 
   float x = 0.0, y = 0.0, z = 0.0;
@@ -505,22 +514,30 @@ bool is_stable(){
 
 
   if(x > (x_accel_filtered + limiar)){
-      allarm_filter += ((x - x_accel_filtered + limiar)) * filtro_desativacao;
+    Timer_stable.reset();
+    return false;
   }
-  else allarm_filter += (-allarm_filter) * filtro_desativacao;
+
 
   if(y > (y_accel_filtered + limiar)){
-      allarm_filter += ((y - y_accel_filtered + limiar)) * filtro_desativacao;
+    Timer_stable.reset();
+    return false;
   }
-  else allarm_filter += (-allarm_filter) * filtro_desativacao;
+
 
   if(z > (z_accel_filtered + limiar)){
-      allarm_filter += ((z - z_accel_filtered + limiar)) * filtro_desativacao;
+    Timer_stable.reset();
+    return false;
   }
-  else allarm_filter += (-allarm_filter) * filtro_desativacao;
 
 
-  if(allarm_filter < 500 && alpha < 5.0 && theta < 5.0) return true;
+
+  if(alpha > 5.0 || theta > 5.0){
+    Timer_stable.reset();
+    return false;
+  }
+
+  if(Timer_stable.get() > 2000) return true;
 
   return false;
     
