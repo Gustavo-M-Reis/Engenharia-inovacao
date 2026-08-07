@@ -17,7 +17,7 @@
 #define BOT_CONFIRMA 3
 #define LED 5
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+#define SCREEN_HEIGHT 55 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 #define TEMPO_DEBOUNCE 100
 #define TEMPO_ESPERA 5000
@@ -54,6 +54,10 @@ class Timer{
 
 Timer Timer_LED;
 Timer Timer_stable;
+Timer Tempo_ref;
+Timer Tempo_TIMEOUT;
+Timer Buzzer_timer;
+
 
 // Estrutura para os botões
 
@@ -70,27 +74,28 @@ enum STATE {HELLO, IDADE, PESO, SAVE, PRINCIPAL, AVISO};
 // Declaração das variáveis globais
 
 bool estavel = 1;                  // Está estável? 0 = não / 1 = sim
-uint16_t idade = 60;               // Idade inicializa com 60 anos - produto focado em idosos 
+uint8_t idade = 60;               // Idade inicializa com 60 anos - produto focado em idosos 
 uint16_t peso = 70;                // Peso inicializa com 70 Kg
 uint16_t consumo_est = 0;          // Consumo estimado - calculo com base em peso e idade
 uint16_t consumo_atual = 0;        // Consumo atual - zera quando a garrafa é inicializada
-uint16_t bateria = 0;              // Valor em porcentagem da bateria = bat_atual/bat_max
+uint8_t bateria = 0;              // Valor em porcentagem da bateria = bat_atual/bat_max
 enum STATE modo_display = HELLO;       
+uint32_t tempo_timeout = TEMPO_TIMEOUT;
 
 // Declaração das Funções
 
 // Funções - Igor
 uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin);
 float adjust(float input, float input_min, float input_max, float output_min, float output_max);
-void buzzer_logic(byte state);
+void buzzer_logic(uint8_t state);
 bool is_stable();
 uint16_t get_liq_level();
 float value2cap(uint16_t value);
+bool level_logic();
+
 
 // Funções - Lucas
-bool ler_botoes(Botao *btn);                             // Lê os botões e implementa debouncing
-bool esta_estavel();                                     // Verifica se está estável para leitura
-uint16_t quanto_bebeu();                                 // Lê a variação de água e incrementa o consumo
+bool ler_botoes(Botao *btn);                             // Lê os botões e implementa debouncing                             
 uint16_t carga_bateria();                                // Devolve a porcentagem da bateria
 void controle_sys(bool B_UP, bool B_DW, bool B_OK);      // Implementa máquina de estados do sistema
 void controle_display();                                 // Implementa máquina de estados do display
@@ -121,9 +126,7 @@ void setup() {
         while(1);
     }
     IMU.lowPassFilter(BANDWIDTH_5HZ);
-    // Essas duas linhas tem que ver se vai precisar mesmo
-    //move_detect();
-    //int z_accel = 1;
+    
     configuraDisplay(1);
 
     _min_cap = value2cap(MIN_VALUE);
@@ -198,30 +201,13 @@ bool botao_pressionado(){
   }  
 }
 
-bool esta_estavel(){
-  // Precisa ver como verificar se está estável
-  // Deve devolver 1 se está pronto para medida / 0 caso contrátio
-  return 1;
-}
-
-uint16_t quanto_bebeu(){  
-  // Precisa ver como vai fazer para obter as medidas de nível
-  // Tem que devolver uma medida estável depois de um tempo da medição, não uma flutuação
-  // ex: retornar 0 a menos que a variação lida seja maior que 10ml
-  // Chamar função esta_estavel()
-  // Levar em consideração essa parte do código!
-  //    consumo += quanto_bebeu();
-  //    if (consumo >= 50){
-  //      consumo_atual += consumo;
-  //      consumo = 0;
-  return 0;
-}
 
 uint16_t carga_bateria(){
   static float volts = ((float)analogRead(BAT_SENS) * 0.004887 - volts) * 0.01;
   volts += ((float)analogRead(BAT_SENS) * 0.004887 - volts) * 0.01;
-  uint16_t nivel = (uint16_t)adjust(volts, 3.5, 4.2, 0.0, 100.0);
-  return nivel;
+  int16_t nivel = (int16_t)adjust(volts, 3.5, 4.2, 0.0, 100.0);
+  nivel = max(min(100, nivel), 0);
+  return (uint16_t)nivel;
 }
 
 uint16_t consumo_estimado(){
@@ -259,15 +245,12 @@ void aviso_LED_buzzer(){
 
 void controle_sys(bool B_UP, bool B_DW, bool B_OK){
   static enum STATE modo_sys = HELLO;
-  static int16_t consumo = 0;
-  static unsigned long tempo_ref = millis();
-  static unsigned long tempo_TIMEOUT = millis();
-  static uint16_t last_level = get_liq_level();
+  bool consumo;
   switch(modo_sys){
     case HELLO:
       modo_display = HELLO;
-      if (millis()-tempo_ref >= TEMPO_ESPERA){
-        tempo_ref = millis();
+      if (Tempo_ref.get() >= TEMPO_ESPERA){
+        Tempo_ref.reset();
         modo_sys = IDADE;
       }
       break;
@@ -288,34 +271,31 @@ void controle_sys(bool B_UP, bool B_DW, bool B_OK){
         peso--;
       if (B_OK == 1){
         modo_sys = SAVE;
-        tempo_ref = millis();
+        Tempo_ref.reset();
       }
       break;
     case SAVE:
       modo_display = SAVE;
-      if (millis()-tempo_ref >= TEMPO_ESPERA){
+      if (Tempo_ref.get() >= TEMPO_ESPERA){
         consumo_est = consumo_estimado();
-        tempo_TIMEOUT = millis();
+        Tempo_TIMEOUT.reset();
         modo_sys = PRINCIPAL;
       }
       break;
     case PRINCIPAL:
       modo_display = PRINCIPAL;
-      if(is_stable()){
-        uint16_t level = get_liq_level();
-       consumo = (int16_t)last_level - (int16_t)level;
+      
+      consumo = level_logic();
 
-        if (consumo >= 50){
-          consumo_atual += consumo;
-          last_level = level;
-          tempo_TIMEOUT = millis();
-        }
+      if(consumo == true){
+        Tempo_TIMEOUT.reset();
       }
+      
       bateria = carga_bateria();
       if (botao_pressionado() == 1){
         modo_sys = IDADE;
       }
-      if (millis()-tempo_TIMEOUT >= TEMPO_TIMEOUT){
+      if (Tempo_TIMEOUT.get() >= tempo_timeout){
         Timer_LED.reset();
         modo_sys = AVISO;
       }
@@ -323,19 +303,13 @@ void controle_sys(bool B_UP, bool B_DW, bool B_OK){
     case AVISO:
       modo_display = AVISO;
       aviso_LED_buzzer(); 
-      if(is_stable()){
-        uint16_t level = get_liq_level();
-        consumo = (int16_t)last_level - (int16_t)level;
 
-        if (consumo >= 50){
-          consumo_atual += consumo;
-          last_level = level;
-        }
-      }
-      if (B_OK == 1 or consumo >= 50){
+      consumo = level_logic();
+      
+      if (B_OK == 1 or consumo == true){
         digitalWrite(LED, LOW);
         buzzer_logic(false);
-        tempo_TIMEOUT = millis();
+        Tempo_TIMEOUT.reset();
         modo_sys = PRINCIPAL;
       }
       break;
@@ -416,7 +390,8 @@ void exibirTelaPeso(){
 void exibirTelaSave(){
     display.clearDisplay();
     configuraDisplay(1);
-    display.print("Dados salvos com sucesso!");
+    display.println("Dados salvos com");
+    display.print("sucesso!");
 
     display.display();
 }
@@ -426,9 +401,9 @@ void exibirTelaPrincipal(){
     configuraDisplay(1);
     display.print("Bateria: ");
     display.print(carga_bateria());
-    display.print("%");
+    display.println("%");
 
-    display.setCursor(0,16);
+    //display.setCursor(0,16);
     display.print(consumo_atual);
     display.print(" ml");
     display.print(" / ");
@@ -441,7 +416,8 @@ void exibirTelaPrincipal(){
 void exibirTelaAviso(){
     display.clearDisplay();
     configuraDisplay(1);
-    display.print("Beba água ou pressione OK para adiar.");
+    display.println("Beba agua ou pres-");
+    display.print("sione OK para adiar.");
 
     display.display();
 }
@@ -469,12 +445,11 @@ uint16_t read_charge(uint8_t sensor_pin, uint8_t charge_pin){
     return result;
 }
 
-void buzzer_logic(byte state){
-  static unsigned long timer = millis();
+void buzzer_logic(uint8_t state){
   static byte current_state = 0;
   if(state){
-    if(millis() - timer >= 100){
-      timer = millis();
+    if(Buzzer_timer.get() >= 100){
+      Buzzer_timer.reset();
       current_state = ~current_state;
       digitalWrite(BUZZER_PIN, current_state);
     }
@@ -484,7 +459,6 @@ void buzzer_logic(byte state){
 
 bool is_stable(){
   static float x_accel_filtered = 0.0, y_accel_filtered = 0.0, z_accel_filtered = 0.0;
-  static float allarm_filter = 0.0;
   
   
   float alpha = 0.0;
@@ -549,15 +523,6 @@ uint16_t get_liq_level(){
   /*
 os valores devem sar calibrados de acordo com a quantidade
 calibração com os pontos abaixo:
-0 - 280
-42 - 370
-111 - 460
-195 - 530
-283 - 590
-361 - 630
-464 - 675
-540 - 700
-
 0	123
 24	205
 50	268
@@ -568,8 +533,8 @@ calibração com os pontos abaixo:
 464	642
 545	673
 valores aferidos com uma balança
-
 */
+
 uint32_t media = 0;
 for(uint8_t i = 0 ; i < 20 ; i++){
   media += read_charge(SENSOR_PIN, CHARGE_PIN);
@@ -599,4 +564,44 @@ float value2cap(uint16_t value){
   float capacitancia = (volts * 47.0) / (4.5 - volts);
 
   return capacitancia;
+}
+
+
+bool level_logic(){
+  // gerencia a lógica de consumo identificando pontos chave como, movimentação, e mudanças no nivel, para cima e para baixo
+  static bool last_stable_state = false;
+  static int16_t nivel = get_liq_level(), last_nivel = 0;
+  //armazena o nivel da garrafa quando cheia, evita o acumulo de erro na medição
+  static int16_t full_nivel = nivel;
+  static int16_t consumo_acumulado = 0;
+
+  bool stable = is_stable();
+
+  //a leitura de nivel deve ser feita somente após a sequencia is_stable() -> false -> true, e somente uma vez, para evitar interferencia devido o toque
+  if(last_stable_state == false && stable == true){
+    last_stable_state = true;
+    nivel = get_liq_level();
+
+    int16_t consumo = nivel - last_nivel;
+
+    //determina se a garrafa foi enchida
+    if(consumo >= 50){
+      consumo_acumulado = consumo_atual;
+      last_nivel = nivel;
+      full_nivel = nivel;
+      return false;
+    }
+
+    //atualiza consumo caso a mudança de nivel seja superior ao valor minimo
+    if(consumo <= 10){
+      consumo_atual = (full_nivel - nivel) + consumo_acumulado;
+      last_nivel = nivel;
+      tempo_timeout = (uint32_t)(((float)abs(consumo) / 800.0) * 3600.0) * 1000;
+      return true;
+    }
+  }
+  else if(stable == false){
+    last_stable_state = false;
+  }
+  return false;
 }
